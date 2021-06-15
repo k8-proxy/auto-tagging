@@ -1,0 +1,142 @@
+name: "Auto Tagging and Release and auto labelling"
+description: "Creates auto tag and release on PR merge and add label to PR and issues"
+
+inputs:
+  main_branch_name:
+    description: "Main branch name"
+    required: true
+  develop_branch_name:
+    description: "Develop branch name"
+    required: true
+  GITHUBPAT:
+    description: "GITHUB PAT"
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+      - name: Extract branch name
+        shell: bash
+        run: echo "##[set-output name=branch;]$(echo ${GITHUB_REF#refs/heads/})"
+        id: extract_branch
+        
+      - name: Form new tag/release name
+        id: tagging
+        shell: bash
+        run: |
+          git config user.name github-actions@github.com
+          git config user.email github-actions
+          git config --global http.postBuffer 1048576000
+          git fetch --tags
+          
+          main_branch_name=${{ inputs.main_branch_name }}
+          develop_branch_name=${{ inputs.develop_branch_name }}
+          
+          tags=$(git tag -l)
+          
+          if [ -z "$tags" ]; then
+            latest_tag="v0.0.0"
+          else
+            repo_name=$(git config --get remote.origin.url | sed 's/.*\/\([^ ]*\/[^.]*\).*/\1/')
+            latest_tag=$(curl -sL https://api.github.com/repos/$repo_name/tags | jq -r ".[0].name")
+          fi
+          
+          echo "previous latest tag : $latest_tag"
+          
+          version=`echo $latest_tag| cut -d. -f1`
+          major=`echo $latest_tag | cut -d. -f2`
+          minor=`echo $latest_tag | cut -d. -f3`
+          
+          branch=${{ steps.extract_branch.outputs.branch }}
+          prerelease=false
+          
+          if [ $branch == $main_branch_name ]; then
+              prerelease=true
+              minor=0
+              major=`expr $major + 1`
+            
+          elif [ $branch == $develop_branch_name ]; then
+              if [ -z "$minor" ]; then
+                 minor=1
+              else
+                  minor=`expr $minor + 1`
+              fi
+          fi
+          
+          tag_name=$version.$major.$minor
+          
+          echo "new tag is : $tag_name"
+          
+          echo ::set-output name=prerelease::$prerelease
+          echo ::set-output name=tag_id::$tag_name
+          echo ::set-output name=repo_name::$repo_name
+          
+      - name: create tag
+        id: create_tag
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ inputs.GITHUBPAT }}
+        run: |
+              if [[ "${{ steps.tagging.outputs.prerelease }}" == "true" ]] ; then
+
+                  gh release create  ${{ steps.tagging.outputs.tag_id }} --prerelease 
+
+              else
+                  git tag -a ${{ steps.tagging.outputs.tag_id }} -m  "New tag ${{ steps.tagging.outputs.tag_id }} is created"
+                  git push --tags
+              fi
+
+      - name : Add label to PR and linked Issues on merge   
+        id: label_PR_and_Issues
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ inputs.GITHUBPAT }}
+        run: |
+                if [[ "${{ github.event.pull_request.merged }}" == "true" ]] ; then
+                
+                      repo_name=${{ steps.tagging.outputs.repo_name }}
+                      tag_name=${{ steps.tagging.outputs.tag_id }}
+                      color="D2C3F9"
+                      pull_number=$(jq --raw-output .pull_request.number "$GITHUB_EVENT_PATH")
+                      body=$(curl -sL https://api.github.com/repos/$repo_name/pulls/$pull_number |  jq -r ".body")
+                      
+                      j=0
+                      for val in $(echo $body | awk '{for (i=1;i<NF;i++) if ($i == "Changes") print $(i+1)}')
+                          do  
+                              issue_list[$j]=$val 
+                              ((j=j+1))
+                          done
+                          
+                      curl -X POST  -H "Accept: application/vnd.github.v3+json" -H"authorization: Bearer ${{ env.GITHUB_TOKEN }}" https://api.github.com/repos/$repo_name/labels -d '{"name": "'"$tag_name"'" ,"color": "'"$color"'"}'
+                      gh pr edit $pull_number  --add-label $tag_name
+                      echo "Added $tag_name label to PR $pull_number"
+
+                      echo "body"
+                      echo $body
+
+                      echo "issue_list"
+                      echo ${issue_list[@]}
+
+                      for i in "${issue_list[@]}"
+                        do
+                            issue_number=$(echo $i | cut -f2 -d# | tr '\n' ' ')
+                            issue_number=$(echo "${issue_number//[[:space:]]/}")
+                            
+                            repo=$(echo $i | cut -f1 -d#)
+                            
+                            if [ -z "$repo" ]; then
+                              repo=$repo_name
+                            else
+                              curl -X POST  -H "Accept: application/vnd.github.v3+json" -H"authorization: Bearer ${{ env.GITHUB_TOKEN }}" https://api.github.com/repos/$repo/labels -d '{"name": "'"$tag_name"'" ,"color": "'"$color"'"}'
+                            fi
+                                                        
+                            curl -X POST  -H "Accept: application/vnd.github.v3+json" -H"authorization: Bearer ${{ env.GITHUB_TOKEN }}"  https://api.github.com/repos/$repo/issues/$issue_number/labels -d '["'"$tag_name"'"]'
+
+                            echo "Label $tag_name to issue $repo/$issue added"
+
+                        done
+                fi
+
+branding:
+  icon: "book-open"
+  color: "white"
