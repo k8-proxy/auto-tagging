@@ -1,0 +1,27 @@
+# This is a basic workflow to help you get started with Actions
+
+name: Auto tagging and release testing
+
+on:
+  # Triggers the workflow on push or pull request events but only for the main branch
+  pull_request:
+    branches:
+      - master
+      - develop
+    types: [closed]
+    paths-ignore:
+      - '.github/workflows/auto_tagging.yml'
+
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - id: foo
+
+        uses: k8-proxy/auto-tagging@v0.0.1
+        with:
+           GITHUBPAT: ${{secrets.GITHUBPAT}}
+           main_branch_name: "main"
+           develop_branch_name: "develop"
