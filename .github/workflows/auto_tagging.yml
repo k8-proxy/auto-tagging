@@ -1,12 +1,12 @@
 # This is a basic workflow to help you get started with Actions
 
-name: Auto tagging and release testing
+name: Auto tagging and release
 
 on:
   # Triggers the workflow pull request events but only for the main and develop branch
   pull_request:
     branches:
-      - master
+      - main
       - develop
     types: [closed]
     paths-ignore:
