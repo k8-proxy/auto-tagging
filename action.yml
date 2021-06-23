@@ -33,11 +33,11 @@ runs:
           develop_branch_name=${{ inputs.develop_branch_name }}
           
           tags=$(git tag -l)
+          repo_name=$(git config --get remote.origin.url | sed 's/.*\/\([^ ]*\/[^.]*\).*/\1/')
           
           if [ -z "$tags" ]; then
             latest_tag="v0.0.0"
           else
-            repo_name=$(git config --get remote.origin.url | sed 's/.*\/\([^ ]*\/[^.]*\).*/\1/')
             latest_tag=$(git describe --tags `git rev-list --tags --max-count=1`)
           fi
           
