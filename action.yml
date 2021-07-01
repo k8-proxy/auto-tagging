@@ -77,9 +77,10 @@ runs:
         env:
           GITHUB_TOKEN: ${{ inputs.GITHUBPAT }}
         run: |
+              branch=${{ steps.extract_branch.outputs.branch }}
               if [[ "${{ steps.tagging.outputs.prerelease }}" == "true" ]] ; then
 
-                  gh release create  ${{ steps.tagging.outputs.tag_id }} --prerelease 
+                  gh release create  ${{ steps.tagging.outputs.tag_id }} --target $branch --prerelease 
 
               else
                   git tag -a ${{ steps.tagging.outputs.tag_id }} -m  "New tag ${{ steps.tagging.outputs.tag_id }} is created"
